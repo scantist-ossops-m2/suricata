@@ -993,11 +993,6 @@ asn1-max-frames: 256
 #    # ".." components to reference parent directories in rules that specify
 #    # their filenames.
 #    #allow-absolute-filenames: false
-#
-#    # Allow datasets in rules write access for "save" and
-#    # "state". This is enabled by default, however write access is
-#    # limited to the data directory.
-#    #allow-write: true
 
 ##############################################################################
 ##
@@ -1013,11 +1008,6 @@ asn1-max-frames: 256
 #run-as:
 #  user: suri
 #  group: suri
-
-security:
-  lua:
-    # Allow Lua rules. Disabled by default.
-    #allow-rules: false
 
 # Some logging modules will use that name in event as identifier. The default
 # value is the hostname
