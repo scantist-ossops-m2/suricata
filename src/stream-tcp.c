@@ -1364,6 +1364,39 @@ static void StreamTcp3whsSynAckUpdate(TcpSession *ssn, Packet *p, TcpStateQueue 
     ssn->flags &=~ STREAMTCP_FLAG_4WHS;
 }
 
+/** \internal
+ *  \brief detect timestamp anomalies when processing responses to the
+ *         SYN packet.
+ *  \retval true packet is ok
+ *  \retval false packet is bad
+ */
+static inline bool StateSynSentValidateTimestamp(TcpSession *ssn, Packet *p)
+{
+    /* we only care about evil server here, so skip TS packets */
+    if (PKT_IS_TOSERVER(p) || !(TCP_HAS_TS(p))) {
+        return true;
+    }
+
+    TcpStream *receiver_stream = &ssn->client;
+    uint32_t ts_echo = TCP_GET_TSECR(p);
+    if ((receiver_stream->flags & STREAMTCP_STREAM_FLAG_TIMESTAMP) != 0) {
+        if (receiver_stream->last_ts != 0 && ts_echo != 0 &&
+            ts_echo != receiver_stream->last_ts)
+        {
+            SCLogDebug("ssn %p: BAD TSECR echo %u recv %u", ssn,
+                    ts_echo, receiver_stream->last_ts);
+            return false;
+        }
+    } else {
+        if (receiver_stream->last_ts == 0 && ts_echo != 0) {
+            SCLogDebug("ssn %p: BAD TSECR echo %u recv %u", ssn,
+                    ts_echo, receiver_stream->last_ts);
+            return false;
+        }
+    }
+    return true;
+}
+
 /**
  *  \brief  Function to handle the TCP_SYN_SENT state. The function handles
  *          SYN, SYN/ACK, RST packets and correspondingly changes the connection
@@ -1382,6 +1415,10 @@ static int StreamTcpPacketStateSynSent(ThreadVars *tv, Packet *p,
 
     SCLogDebug("ssn %p: pkt received: %s", ssn, PKT_IS_TOCLIENT(p) ?
                "toclient":"toserver");
+
+    /* check for bad responses */
+    if (StateSynSentValidateTimestamp(ssn, p) == false)
+        return -1;
 
     /* RST */
     if (p->tcph->th_flags & TH_RST) {
@@ -4767,6 +4804,7 @@ int StreamTcpPacket (ThreadVars *tv, Packet *p, StreamTcpThread *stt,
     /* broken TCP http://ask.wireshark.org/questions/3183/acknowledgment-number-broken-tcp-the-acknowledge-field-is-nonzero-while-the-ack-flag-is-not-set */
     if (!(p->tcph->th_flags & TH_ACK) && TCP_GET_ACK(p) != 0) {
         StreamTcpSetEvent(p, STREAM_PKT_BROKEN_ACK);
+        goto error;
     }
 
     /* If we are on IPS mode, and got a drop action triggered from
@@ -7008,7 +7046,7 @@ static int StreamTcpTest10 (void)
 
     tcph.th_win = htons(5480);
     tcph.th_seq = htonl(10);
-    tcph.th_ack = htonl(11);
+    tcph.th_ack = 0;
     tcph.th_flags = TH_SYN;
     p->tcph = &tcph;
 
